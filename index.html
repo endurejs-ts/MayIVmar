@@ -1,0 +1,129 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>jQuery .io Game</title>
+    <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
+    <style>
+      #gameCanvas {
+        border: 1px solid black;
+        width: 800px;
+        height: 600px;
+        position: relative;
+        overflow: hidden;
+      }
+      .player {
+        width: 20px;
+        height: 20px;
+        background: red;
+        position: absolute;
+        border-radius: 50%;
+      }
+      .controls {
+        margin-bottom: 10px;
+      }
+    </style>
+  </head>
+  <body>
+    <h1>jQuery .io Game</h1>
+    <div class="controls">
+      <button id="addPlayer">인원 추가하기</button>
+      <button id="switchPlayer">현재 조종 유저 변경</button>
+    </div>
+    <div id="gameCanvas"></div>
+
+    <script>
+      let socket = new WebSocket("ws://localhost:3000");
+      let players = {}; // 전체 플레이어 목록
+      let myPlayers = []; // 내가 추가한 플레이어 ID 목록
+      let currentPlayerIndex = 0; // 현재 조종하는 플레이어 인덱스
+      const speed = 3; // 이동 속도
+      let keys = {}; // 눌린 키 저장
+
+      socket.onopen = function () {
+        console.log("Connected to server");
+      };
+
+      socket.onmessage = function (event) {
+        let data = JSON.parse(event.data);
+
+        if (data.type === "update") {
+          players = data.players;
+          updateGame();
+        }
+      };
+
+      function updateGame() {
+        $("#gameCanvas").empty();
+        $.each(players, function (id, position) {
+          let color = myPlayers.includes(id) ? "blue" : "red";
+          $("#gameCanvas").append(
+            `<div class="player" style="left:${position.x}px; top:${position.y}px; background:${color};"></div>`
+          );
+        });
+      }
+
+      // 키 입력 감지
+      $(document).keydown(function (event) {
+        keys[event.key] = true;
+      });
+
+      $(document).keyup(function (event) {
+        delete keys[event.key];
+      });
+
+      // 부드러운 이동을 위한 게임 루프
+      function gameLoop() {
+        if (myPlayers.length === 0) return;
+        let playerId = myPlayers[currentPlayerIndex]; // 현재 선택된 플레이어 ID
+        let player = players[playerId] || { x: 100, y: 100 };
+
+        if (keys["w"]) player.y -= speed;
+        if (keys["s"]) player.y += speed;
+        if (keys["a"]) player.x -= speed;
+        if (keys["d"]) player.x += speed;
+
+        socket.send(
+          JSON.stringify({
+            type: "move",
+            id: playerId,
+            x: player.x,
+            y: player.y,
+          })
+        );
+      }
+
+      setInterval(gameLoop, 16); // 약 60FPS
+
+      // 인원 추가 버튼
+      $("#addPlayer").click(function () {
+        socket.send(JSON.stringify({ type: "newPlayer" }));
+      });
+
+      // 현재 조종 유저 변경 버튼
+      $("#switchPlayer").click(function () {
+        if (myPlayers.length > 1) {
+          currentPlayerIndex = (currentPlayerIndex + 1) % myPlayers.length;
+          console.log(
+            `현재 조종하는 플레이어: ${myPlayers[currentPlayerIndex]}`
+          );
+        }
+      });
+
+      // 서버에서 플레이어 ID 받기
+      socket.onmessage = function (event) {
+        let data = JSON.parse(event.data);
+
+        if (data.type === "newPlayer") {
+          myPlayers.push(data.id);
+          if (myPlayers.length === 1) {
+            currentPlayerIndex = 0; // 첫 번째 플레이어로 설정
+          }
+        } else if (data.type === "update") {
+          players = data.players;
+          updateGame();
+        }
+      };
+    </script>
+  </body>
+</html>
